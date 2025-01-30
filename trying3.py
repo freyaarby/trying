@@ -1,31 +1,49 @@
 import streamlit as st
+import pandas as pd
+import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 
-def calculate_bmi(weight, height):
-    bmi = weight / (height ** 2)
-    return bmi
+# Load dataset
+data_path = "arxiv_ml.csv"
+df = pd.read_csv(data_path)
 
-def main():
-    st.title("BMI Calculator")
-    st.write("Masukkan berat dan tinggi badan untuk menghitung BMI Anda.")
+# Ambil kolom teks utama untuk digunakan sebagai dataset
+if "abstract" in df.columns:
+    dataset = df["abstract"].dropna().tolist()
+else:
+    st.error("Kolom 'abstract' tidak ditemukan dalam dataset.")
+    st.stop()
+
+# Inisialisasi TF-IDF
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(dataset)
+
+# Load Model T5
+device = "cuda" if torch.cuda.is_available() else "cpu"
+tokenizer = T5Tokenizer.from_pretrained("t5-small")
+model = T5ForConditionalGeneration.from_pretrained("t5-small").to(device)
+
+# Streamlit UI
+st.title("QA System dengan RAG (TF-IDF + T5)")
+question = st.text_input("Masukkan pertanyaan tentang Machine Learning: ")
+
+if question:
+    # TF-IDF Retrieval
+    question_vec = vectorizer.transform([question])
+    similarities = cosine_similarity(question_vec, X).flatten()
+    best_idx = similarities.argmax()
+    retrieved_context = dataset[best_idx]
     
-    weight = st.number_input("Berat badan (kg)", min_value=1.0, format="%.2f")
-    height = st.number_input("Tinggi badan (m)", min_value=0.5, format="%.2f")
+    # Generasi Jawaban dengan T5
+    input_text = f"question: {question} context: {retrieved_context}"
+    input_ids = tokenizer(input_text, return_tensors="pt").input_ids.to(device)
+    output_ids = model.generate(input_ids, max_length=50)
+    answer = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     
-    if st.button("Hitung BMI"):
-        if height > 0:
-            bmi = calculate_bmi(weight, height)
-            st.write(f"BMI Anda adalah: {bmi:.2f}")
-            
-            if bmi < 18.5:
-                st.warning("Anda berada dalam kategori underweight (kurus).")
-            elif 18.5 <= bmi < 24.9:
-                st.success("Anda berada dalam kategori normal.")
-            elif 25 <= bmi < 29.9:
-                st.warning("Anda berada dalam kategori overweight (kelebihan berat badan).")
-            else:
-                st.error("Anda berada dalam kategori obesitas.")
-        else:
-            st.error("Tinggi badan harus lebih dari 0.")
-
-if __name__ == "__main__":
-    main()
+    # Tampilkan hasil
+    st.write("### Konteks yang ditemukan:")
+    st.info(retrieved_context)
+    st.write("### Jawaban:")
+    st.success(answer)
