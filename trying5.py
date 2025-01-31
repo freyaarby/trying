@@ -78,7 +78,6 @@ print(df)
 df = df.iloc[:5] 
 print(df)
 
-!pip install transformers
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 
 # Load tokenizer dan model T5
